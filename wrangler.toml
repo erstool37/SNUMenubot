@@ -1,0 +1,8 @@
+name = "snu-food-discord-bot"
+main = "src/worker.js"
+compatibility_date = "2026-05-05"
+workers_dev = true
+
+[vars]
+SNU_FOOD_BOT_MENU_URL = "https://snuco.snu.ac.kr/foodmenu/"
+SNU_FOOD_BOT_RESTAURANTS = "302동,301동,교직원식당"
