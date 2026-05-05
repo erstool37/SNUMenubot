@@ -1,5 +1,5 @@
 name = "snu-food-discord-bot"
-main = "src/worker.js"
+main = "src/worker.compact.js"
 compatibility_date = "2026-05-05"
 workers_dev = true
 
