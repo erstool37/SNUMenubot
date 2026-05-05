@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import worker from "../src/worker.js";
+import worker from "../src/worker.compact.js";
 
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
 const publicDer = publicKey.export({ format: "der", type: "spki" });

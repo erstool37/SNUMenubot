@@ -3,8 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/worker.js && node --check scripts/test-menu.mjs && node --check scripts/test-discord-ping.mjs && node --check scripts/register-discord-commands.mjs",
-    "check:compact": "node --check src/worker.compact.js",
+    "check": "node --check src/worker.compact.js && node --check scripts/test-menu.mjs && node --check scripts/test-discord-ping.mjs && node --check scripts/register-discord-commands.mjs",
     "test:menu": "node scripts/test-menu.mjs",
     "test:discord-ping": "node scripts/test-discord-ping.mjs",
     "register": "node scripts/register-discord-commands.mjs"

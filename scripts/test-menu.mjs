@@ -1,4 +1,4 @@
-import { fetchMenu, formatMenu } from "../src/worker.js";
+import { fetchMenu, formatMenu } from "../src/worker.compact.js";
 
 const env = {
   SNU_FOOD_BOT_MENU_URL: process.env.SNU_FOOD_BOT_MENU_URL,
@@ -8,4 +8,4 @@ const env = {
 
 const rows = await fetchMenu(env);
 console.log(`parsed_rows=${rows.length}`);
-console.log(formatMenu(rows, { meals: ["lunch"], preferred: env.SNU_FOOD_BOT_RESTAURANTS }));
+console.log(formatMenu(rows, ["lunch"], env.SNU_FOOD_BOT_RESTAURANTS));
