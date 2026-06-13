@@ -2,6 +2,9 @@ display_information:
   name: SNU Menu Bot
   description: Private SNU cafeteria menu lookup.
 features:
+  bot_user:
+    display_name: SNU Menu Bot
+    always_online: false
   slash_commands:
     - command: /snumenu
       url: https://YOUR-WORKER.workers.dev/slack/commands
