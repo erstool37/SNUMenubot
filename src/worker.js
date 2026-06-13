@@ -1,6 +1,7 @@
 const DISCORD_API = "https://discord.com/api/v10";
 const MENU_URL = "https://snuco.snu.ac.kr/foodmenu/";
 const DEFAULT_RESTAURANTS = "302동,301동,교직원식당";
+const DINNER_RESTAURANTS = "302동식당";
 const MAX_DISCORD_MESSAGE = 1900;
 
 const MEAL_LABELS = {
@@ -29,6 +30,10 @@ export default {
     }
 
     const body = await request.text();
+    if (url.pathname === "/slack/commands") {
+      return handleSlackCommand(request, body, env);
+    }
+
     const valid = await verifyDiscordRequest(request, body, env.DISCORD_PUBLIC_KEY);
     if (!valid) {
       return new Response("invalid request signature", { status: 401 });
@@ -50,6 +55,26 @@ export default {
     });
   },
 };
+
+async function handleSlackCommand(request, body, env) {
+  const valid = await verifySlackRequest(request, body, env.SLACK_SIGNING_SECRET);
+  if (!valid) {
+    return new Response("invalid request signature", { status: 401 });
+  }
+
+  try {
+    const params = new URLSearchParams(body);
+    const action = slackAction(params.get("text") || "");
+    const rows = await fetchMenu(env);
+    const text = slackMrkdwn(formatSlackAction(rows, action, env));
+    return jsonResponse({ response_type: "ephemeral", text });
+  } catch (error) {
+    return jsonResponse({
+      response_type: "ephemeral",
+      text: `메뉴를 가져오지 못했습니다: ${errorMessage(error)}`,
+    });
+  }
+}
 
 async function verifyDiscordRequest(request, body, publicKeyHex) {
   const signature = request.headers.get("x-signature-ed25519");
@@ -73,6 +98,31 @@ async function verifyDiscordRequest(request, body, publicKeyHex) {
   );
 }
 
+async function verifySlackRequest(request, body, signingSecret) {
+  const signature = request.headers.get("x-slack-signature");
+  const timestamp = request.headers.get("x-slack-request-timestamp");
+  if (!signature || !timestamp || !signingSecret) return false;
+
+  const seconds = Number.parseInt(timestamp, 10);
+  if (!Number.isFinite(seconds)) return false;
+  if (Math.abs(Date.now() / 1000 - seconds) > 60 * 5) return false;
+
+  const expected = `v0=${await hmacSha256Hex(signingSecret, `v0:${timestamp}:${body}`)}`;
+  return constantTimeEqual(expected, signature);
+}
+
+async function hmacSha256Hex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return bytesToHex(new Uint8Array(signature));
+}
+
 async function handleApplicationCommand(interaction, env) {
   const name = interaction.data?.name;
   try {
@@ -81,12 +131,14 @@ async function handleApplicationCommand(interaction, env) {
       return;
     }
 
-    const meals = mealsForCommand(interaction);
     const rows = await fetchMenu(env);
-    const text = formatMenu(rows, {
-      meals,
-      preferred: env.SNU_FOOD_BOT_RESTAURANTS || DEFAULT_RESTAURANTS,
-    });
+    const preferred = preferredRestaurantsForCommand(interaction, env);
+    const text = name === "time"
+      ? formatTime(rows, { preferred })
+      : formatMenu(rows, {
+        meals: mealsForCommand(interaction),
+        preferred,
+      });
     await sendInteractionMessage(interaction, text);
   } catch (error) {
     await sendInteractionMessage(
@@ -108,6 +160,36 @@ function mealsForCommand(interaction) {
     if (["breakfast", "lunch", "dinner"].includes(meal)) return [meal];
   }
   return ["lunch"];
+}
+
+function slackAction(text) {
+  const [action = "lunch"] = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (["lunch", "점심"].includes(action)) return "lunch";
+  if (["dinner", "저녁"].includes(action)) return "dinner";
+  if (["time", "hours", "hour", "시간", "운영시간"].includes(action)) return "time";
+  if (["help", "도움말"].includes(action)) return "help";
+  return "help";
+}
+
+function formatSlackAction(rows, action, env) {
+  if (action === "help") return "사용법: /snumenu lunch | dinner | time";
+  const preferred = action === "dinner"
+    ? env.SNU_FOOD_BOT_DINNER_RESTAURANTS || DINNER_RESTAURANTS
+    : env.SNU_FOOD_BOT_RESTAURANTS || DEFAULT_RESTAURANTS;
+  if (action === "time") return formatTime(rows, { preferred });
+  return formatMenu(rows, { meals: [action], preferred });
+}
+
+function slackMrkdwn(text) {
+  return text.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
+}
+
+export function preferredRestaurantsForCommand(interaction, env = {}) {
+  const name = interaction.data?.name;
+  if (name === "dinner") {
+    return env.SNU_FOOD_BOT_DINNER_RESTAURANTS || DINNER_RESTAURANTS;
+  }
+  return env.SNU_FOOD_BOT_RESTAURANTS || DEFAULT_RESTAURANTS;
 }
 
 async function sendInteractionMessage(interaction, text, flags) {
@@ -156,35 +238,58 @@ export function parseMenuHtml(html) {
   return rows;
 }
 
-export function formatMenu(rows, { meals, preferred = "", maxRestaurants = 8 }) {
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+export function formatMenu(rows, {
+  meals,
+  preferred = "",
+  maxRestaurants = 8,
+  now = new Date(),
+}) {
+  const today = formatKoreanDate(now);
 
   const filteredRows = preferredFilter(rows, preferred).slice(0, maxRestaurants);
-  const parts = [`SNU food menu for ${today}`, "Source: SNUCO official food menu"];
+  const parts = [meals.length === 1 ? `${today} ${MEAL_LABELS[meals[0]] || meals[0]}` : today];
 
   if (filteredRows.length === 0) {
-    parts.push("", preferred ? `No menu rows found for: ${preferred}` : "No menu rows were found.");
+    parts.push("", preferred ? `메뉴를 찾지 못했습니다: ${preferred}` : "메뉴를 찾지 못했습니다.");
     return parts.join("\n");
   }
 
   for (const meal of meals) {
-    parts.push("", `[${MEAL_LABELS[meal] || meal}]`);
+    if (meals.length > 1) parts.push("", `[${MEAL_LABELS[meal] || meal}]`);
     let anyMenu = false;
     for (const row of filteredRows) {
-      const value = row[meal];
+      const value = clipMenuLines(row[meal]);
       if (!value) continue;
       anyMenu = true;
-      parts.push(`- ${row.restaurant}`);
-      parts.push(indent(clipLines(value)));
+      parts.push("", `**${row.restaurant}**`);
+      parts.push(...value.split("\n").map((line) => `• ${line}`));
     }
     if (!anyMenu) {
-      parts.push("- No menu posted.");
+      parts.push("", "등록된 메뉴가 없습니다.");
     }
+  }
+
+  return parts.join("\n").trim();
+}
+
+export function formatTime(rows, { preferred = "", maxRestaurants = 8 } = {}) {
+  const filteredRows = preferredFilter(rows, preferred).slice(0, maxRestaurants);
+  const parts = ["운영시간"];
+  let anyTime = false;
+
+  for (const row of filteredRows) {
+    const lines = [];
+    for (const meal of ["breakfast", "lunch", "dinner"]) {
+      const time = operatingTime(row[meal]);
+      if (time) lines.push(`• ${MEAL_LABELS[meal] || meal} ${time}`);
+    }
+    if (lines.length === 0) continue;
+    anyTime = true;
+    parts.push("", `**${row.restaurant}**`, ...lines);
+  }
+
+  if (!anyTime) {
+    parts.push("", "등록된 운영시간이 없습니다.");
   }
 
   return parts.join("\n").trim();
@@ -212,6 +317,54 @@ function normalizeText(html) {
     .join("\n");
 }
 
+function formatKoreanDate(date) {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  const weekday = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+  }).format(date).replace(/요일$/, "");
+  return `${day} (${weekday})`;
+}
+
+function clipMenuLines(text = "", maxLines = 12) {
+  const lines = menuLines(text);
+  if (lines.length <= maxLines) return lines.join("\n");
+  return [...lines.slice(0, maxLines), `외 ${lines.length - maxLines}개`].join("\n");
+}
+
+function menuLines(text) {
+  return text
+    .split("\n")
+    .map(cleanMenuLine)
+    .filter(Boolean);
+}
+
+function cleanMenuLine(line) {
+  let value = line.replace(/[ \t\u00a0]+/g, " ").trim();
+  if (!value) return "";
+  if (/^※/.test(value)) return "";
+  if (/^(운영시간|혼잡시간)\s*[:：]/.test(value)) return "";
+  if (/^<[^>]+>\s*(?:[:：]?\s*\d{1,3}(?:,\d{3})*원)?$/.test(value)) return "";
+
+  value = value.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*원/g, "").trim();
+  value = value.replace(/\s*[:：]\s*$/, "").trim();
+  if (!value || /^<[^>]+>$/.test(value)) return "";
+  return value;
+}
+
+function operatingTime(text = "") {
+  for (const line of text.split("\n")) {
+    const match = line.match(/^※?\s*운영시간\s*[:：]\s*(.+)$/);
+    if (match) return match[1].replace(/[ \t\u00a0]+/g, " ").trim();
+  }
+  return "";
+}
+
 function decodeHtml(text) {
   const named = {
     amp: "&",
@@ -231,19 +384,6 @@ function decodeHtml(text) {
     }
     return named[lower] || match;
   });
-}
-
-function clipLines(text, maxLines = 7) {
-  const lines = text.split("\n").filter((line) => line.trim());
-  if (lines.length <= maxLines) return lines.join("\n");
-  return [...lines.slice(0, maxLines), `... ${lines.length - maxLines} more lines`].join("\n");
-}
-
-function indent(text, prefix = "  ") {
-  return text
-    .split("\n")
-    .map((line) => prefix + line)
-    .join("\n");
 }
 
 function splitMessage(text, limit) {
@@ -294,6 +434,19 @@ function hexToBytes(hex) {
     bytes[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   }
   return bytes;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 function matchAll(text, regex) {

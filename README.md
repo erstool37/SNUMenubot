@@ -5,10 +5,12 @@ Cloudflare Worker for SNUCO menu Discord slash commands.
 Commands:
 
 - `/lunch`
-- `/dinner`
+- `/dinner` (302동식당 only)
+- `/time`
 - `/food`
 - `/menu meal:<breakfast|lunch|dinner|lunch and dinner>`
 - `/ping`
+- Slack: `/snumenu lunch`, `/snumenu dinner`, `/snumenu time`
 
 The menu source is the official SNUCO page:
 
@@ -114,3 +116,37 @@ Install URL format:
 ```text
 https://discord.com/oauth2/authorize?client_id=<DISCORD_APPLICATION_ID>&scope=applications.commands
 ```
+
+## Slack Setup
+
+The Slack path is slash-command only. It does not request channel read, channel write,
+DM read, or bot message scopes. Slack responses are always ephemeral.
+
+1. Deploy the Worker so the Slack request URL is reachable over HTTPS.
+2. In Cloudflare, add this Worker secret:
+
+```text
+SLACK_SIGNING_SECRET=<Slack app signing secret>
+```
+
+3. In `slack-app-manifest.yaml`, replace:
+
+```text
+https://YOUR-WORKER.workers.dev/slack/commands
+```
+
+with the deployed Worker URL plus `/slack/commands`.
+
+4. In Slack app settings, create or update an app from the manifest.
+5. Install the app only after confirming the workspace approval prompt.
+
+Usage:
+
+```text
+/snumenu lunch
+/snumenu dinner
+/snumenu time
+```
+
+The command can be typed from Slack, but the response payload explicitly uses
+`response_type: ephemeral`.

@@ -26,7 +26,12 @@ const commands = [
   {
     name: "dinner",
     type: 1,
-    description: "Show the SNU dinner menu for 302동, 301동, and 교직원식당.",
+    description: "Show the SNU dinner menu for 302동식당.",
+  },
+  {
+    name: "time",
+    type: 1,
+    description: "Show operating hours for selected SNU cafeterias.",
   },
   {
     name: "food",

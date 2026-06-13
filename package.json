@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/worker.compact.js && node --check scripts/test-menu.mjs && node --check scripts/test-discord-ping.mjs && node --check scripts/register-discord-commands.mjs",
+    "check": "node --check src/worker.compact.js && node --check scripts/test-format.mjs && node --check scripts/test-slack-command.mjs && node --check scripts/test-menu.mjs && node --check scripts/test-discord-ping.mjs && node --check scripts/register-discord-commands.mjs",
+    "test:format": "node scripts/test-format.mjs",
+    "test:slack": "node scripts/test-slack-command.mjs",
     "test:menu": "node scripts/test-menu.mjs",
     "test:discord-ping": "node scripts/test-discord-ping.mjs",
     "register": "node scripts/register-discord-commands.mjs"
