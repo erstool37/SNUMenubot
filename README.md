@@ -37,7 +37,7 @@ Use this path if `wrangler` is not installed locally.
 2. Go to **Workers & Pages**.
 3. Click **Create application**.
 4. Choose **Worker**.
-5. Name it `snu-food-discord-bot`.
+5. Name it `snumenubot`.
 6. Deploy the starter Worker.
 7. Open **Edit code**.
 8. Replace the starter code with the contents of `src/worker.compact.js`.
@@ -54,7 +54,7 @@ Do not add `DISCORD_TOKEN` to Cloudflare. The bot token is only needed locally t
 12. Copy the Worker URL, for example:
 
 ```text
-https://snu-food-discord-bot.<your-subdomain>.workers.dev/
+https://snumenubot.<your-subdomain>.workers.dev/
 ```
 
 13. In Discord Developer Portal, open the app and paste that URL into **General Information → Interactions Endpoint URL**.
@@ -84,7 +84,7 @@ wrangler deploy
 Set the Discord app's Interactions Endpoint URL to the deployed Worker URL, for example:
 
 ```text
-https://snu-food-discord-bot.<your-subdomain>.workers.dev/
+https://snumenubot.<your-subdomain>.workers.dev/
 ```
 
 Discord will verify the endpoint using the app public key.
@@ -132,7 +132,7 @@ SLACK_SIGNING_SECRET=<Slack app signing secret>
 3. In `slack-app-manifest.yaml`, replace:
 
 ```text
-https://YOUR-WORKER.workers.dev/slack/commands
+https://snumenubot.whddnjs472.workers.dev/slack/commands
 ```
 
 with the deployed Worker URL plus `/slack/commands`.
