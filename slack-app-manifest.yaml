@@ -7,7 +7,7 @@ features:
     always_online: false
   slash_commands:
     - command: /snumenu
-      url: https://YOUR-WORKER.workers.dev/slack/commands
+      url: https://snumenubot.whddnjs472.workers.dev/slack/commands
       description: Show SNU cafeteria menu.
       usage_hint: lunch | dinner | time
       should_escape: false

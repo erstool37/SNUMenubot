@@ -39,22 +39,40 @@ const html = `
 </div>`;
 
 const signingSecret = "test-slack-signing-secret";
+const responseUrl = "https://hooks.slack.com/commands/T123/456/abc";
+const slackPosts = [];
+let menuFetches = 0;
 
-globalThis.fetch = async (url) => {
-  assert.equal(String(url), "https://example.test/menu");
-  return new Response(html, {
-    status: 200,
-    headers: { "content-type": "text/html; charset=utf-8" },
-  });
+globalThis.fetch = async (url, init = {}) => {
+  const href = String(url);
+  if (href === "https://example.test/menu") {
+    menuFetches += 1;
+    return new Response(html, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  }
+
+  if (href === responseUrl) {
+    slackPosts.push({
+      method: init.method,
+      headers: init.headers,
+      body: JSON.parse(init.body),
+    });
+    return new Response("ok", { status: 200 });
+  }
+
+  throw new Error(`unexpected fetch URL: ${href}`);
 };
 
+const waitUntilPromises = [];
 const response = await worker.fetch(
   slackRequest("dinner"),
   {
     SLACK_SIGNING_SECRET: signingSecret,
     SNU_FOOD_BOT_MENU_URL: "https://example.test/menu",
   },
-  { waitUntil: (promise) => promise },
+  { waitUntil: (promise) => waitUntilPromises.push(promise) },
 );
 
 assert.equal(response.status, 200);
@@ -62,30 +80,47 @@ assert.equal(response.headers.get("content-type"), "application/json; charset=ut
 
 const payload = await response.json();
 assert.equal(payload.response_type, "ephemeral");
-assert.equal(payload.text.includes("*302동식당*"), true);
-assert.equal(payload.text.includes("훈제오리볶음밥&미니핫도그"), true);
-assert.equal(payload.text.includes("*301동식당*"), false);
-assert.equal(payload.text.includes("301동 저녁 메뉴"), false);
-assert.equal(payload.text.includes("Source"), false);
-assert.equal(payload.text.includes("Buffet"), false);
-assert.equal(/\d{1,3}(?:,\d{3})*원/.test(payload.text), false);
+assert.equal(payload.text, "메뉴를 불러오는 중입니다.");
+assert.equal(menuFetches, 0);
+assert.equal(waitUntilPromises.length, 1);
 
+await Promise.all(waitUntilPromises);
+assert.equal(menuFetches, 1);
+assert.equal(slackPosts.length, 1);
+assert.equal(slackPosts[0].method, "POST");
+assert.equal(slackPosts[0].body.response_type, "ephemeral");
+assert.equal(slackPosts[0].body.text.includes("*302동식당*"), true);
+assert.equal(slackPosts[0].body.text.includes("훈제오리볶음밥&미니핫도그"), true);
+assert.equal(slackPosts[0].body.text.includes("*301동식당*"), false);
+assert.equal(slackPosts[0].body.text.includes("301동 저녁 메뉴"), false);
+assert.equal(slackPosts[0].body.text.includes("Source"), false);
+assert.equal(slackPosts[0].body.text.includes("Buffet"), false);
+assert.equal(/\d{1,3}(?:,\d{3})*원/.test(slackPosts[0].body.text), false);
+
+waitUntilPromises.length = 0;
+slackPosts.length = 0;
 const timeResponse = await worker.fetch(
   slackRequest("time"),
   {
     SLACK_SIGNING_SECRET: signingSecret,
     SNU_FOOD_BOT_MENU_URL: "https://example.test/menu",
   },
-  { waitUntil: (promise) => promise },
+  { waitUntil: (promise) => waitUntilPromises.push(promise) },
 );
 
 assert.equal(timeResponse.status, 200);
 const timePayload = await timeResponse.json();
 assert.equal(timePayload.response_type, "ephemeral");
-assert.equal(timePayload.text.includes("*302동식당*"), true);
-assert.equal(timePayload.text.includes("• 점심 11:30~13:30"), true);
-assert.equal(timePayload.text.includes("• 저녁 17:00~18:30"), true);
+assert.equal(timePayload.text, "메뉴를 불러오는 중입니다.");
+assert.equal(waitUntilPromises.length, 1);
+await Promise.all(waitUntilPromises);
+assert.equal(slackPosts.length, 1);
+assert.equal(slackPosts[0].body.response_type, "ephemeral");
+assert.equal(slackPosts[0].body.text.includes("*302동식당*"), true);
+assert.equal(slackPosts[0].body.text.includes("• 점심 11:30~13:30"), true);
+assert.equal(slackPosts[0].body.text.includes("• 저녁 17:00~18:30"), true);
 
+waitUntilPromises.length = 0;
 const badResponse = await worker.fetch(
   new Request("https://snu-food-discord-bot.example.workers.dev/slack/commands", {
     method: "POST",
@@ -104,6 +139,7 @@ const badResponse = await worker.fetch(
 );
 
 assert.equal(badResponse.status, 401);
+assert.equal(waitUntilPromises.length, 0);
 
 console.log("slack command tests passed");
 
@@ -136,7 +172,7 @@ function slackBody(text) {
     user_name: "jongwon",
     command: "/snumenu",
     text,
-    response_url: "https://hooks.slack.com/commands/T123/456/abc",
+    response_url: responseUrl,
     trigger_id: "123.456.abc",
   }).toString();
 }

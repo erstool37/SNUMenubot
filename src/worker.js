@@ -31,7 +31,7 @@ export default {
 
     const body = await request.text();
     if (url.pathname === "/slack/commands") {
-      return handleSlackCommand(request, body, env);
+      return handleSlackCommand(request, body, env, ctx);
     }
 
     const valid = await verifyDiscordRequest(request, body, env.DISCORD_PUBLIC_KEY);
@@ -56,24 +56,35 @@ export default {
   },
 };
 
-async function handleSlackCommand(request, body, env) {
+async function handleSlackCommand(request, body, env, ctx) {
   const valid = await verifySlackRequest(request, body, env.SLACK_SIGNING_SECRET);
   if (!valid) {
     return new Response("invalid request signature", { status: 401 });
   }
 
-  try {
-    const params = new URLSearchParams(body);
-    const action = slackAction(params.get("text") || "");
-    const rows = await fetchMenu(env);
-    const text = slackMrkdwn(formatSlackAction(rows, action, env));
-    return jsonResponse({ response_type: "ephemeral", text });
-  } catch (error) {
+  const params = new URLSearchParams(body);
+  const responseUrl = params.get("response_url");
+  if (!responseUrl) {
     return jsonResponse({
       response_type: "ephemeral",
-      text: `메뉴를 가져오지 못했습니다: ${errorMessage(error)}`,
+      text: "Slack response_url이 없습니다. 앱 설정을 다시 확인해 주세요.",
     });
   }
+
+  const action = slackAction(params.get("text") || "");
+  const delayedResponse = defer().then(() =>
+    sendSlackCommandResponse(responseUrl, action, env),
+  );
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(delayedResponse);
+  } else {
+    delayedResponse.catch(() => {});
+  }
+
+  return jsonResponse({
+    response_type: "ephemeral",
+    text: "메뉴를 불러오는 중입니다.",
+  });
 }
 
 async function verifyDiscordRequest(request, body, publicKeyHex) {
@@ -182,6 +193,26 @@ function formatSlackAction(rows, action, env) {
 
 function slackMrkdwn(text) {
   return text.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
+}
+
+async function sendSlackCommandResponse(responseUrl, action, env) {
+  let text;
+  try {
+    if (action === "help") {
+      text = slackMrkdwn(formatSlackAction([], action, env));
+    } else {
+      const rows = await fetchMenu(env);
+      text = slackMrkdwn(formatSlackAction(rows, action, env));
+    }
+  } catch (error) {
+    text = `메뉴를 가져오지 못했습니다: ${errorMessage(error)}`;
+  }
+
+  await postSlackJson(responseUrl, { response_type: "ephemeral", text });
+}
+
+function defer() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 export function preferredRestaurantsForCommand(interaction, env = {}) {
@@ -416,6 +447,20 @@ async function postJson(url, payload) {
   });
   if (!response.ok) {
     throw new Error(`Discord returned HTTP ${response.status}: ${await response.text()}`);
+  }
+}
+
+async function postSlackJson(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "user-agent": "snu-food-discord-worker/1.0",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`Slack response_url returned HTTP ${response.status}: ${await response.text()}`);
   }
 }
 

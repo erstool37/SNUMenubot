@@ -12,7 +12,7 @@ export default {
     }
     if (req.method !== "POST") return text("Discord interaction endpoint\n");
     const body = await req.text();
-    if (url.pathname === "/slack/commands") return handleSlack(req, body, env);
+    if (url.pathname === "/slack/commands") return handleSlack(req, body, env, ctx);
     if (!(await verify(req, body, env.DISCORD_PUBLIC_KEY))) return text("invalid request signature", 401);
     const interaction = JSON.parse(body);
     if (interaction.type === 1) return json({ type: 1 });
@@ -23,14 +23,17 @@ export default {
     return json({ type: 5 });
   },
 };
-async function handleSlack(req, body, env) {
+async function handleSlack(req, body, env, ctx) {
   if (!(await verifySlack(req, body, env.SLACK_SIGNING_SECRET))) return text("invalid request signature", 401);
-  try {
-    const rows = await fetchMenu(env);
-    return json({ response_type: "ephemeral", text: slackMd(slackOut(rows, slackAction(new URLSearchParams(body).get("text") || ""), env)) });
-  } catch (err) {
-    return json({ response_type: "ephemeral", text: `메뉴를 가져오지 못했습니다: ${err?.message || err}` });
+  const params = new URLSearchParams(body);
+  const responseUrl = params.get("response_url");
+  if (!responseUrl) {
+    return json({ response_type: "ephemeral", text: "Slack response_url이 없습니다. 앱 설정을 다시 확인해 주세요." });
   }
+  const delayed = defer().then(() => sendSlack(responseUrl, slackAction(params.get("text") || ""), env));
+  if (ctx?.waitUntil) ctx.waitUntil(delayed);
+  else delayed.catch(() => {});
+  return json({ response_type: "ephemeral", text: "메뉴를 불러오는 중입니다." });
 }
 async function handleCommand(interaction, env) {
   try {
@@ -97,6 +100,22 @@ function slackOut(rows, action, env) {
   return action === "time" ? formatTime(rows, preferred) : formatMenu(rows, [action], preferred);
 }
 function slackMd(s) { return s.replace(/\*\*([^*\n]+)\*\*/g, "*$1*"); }
+function defer() { return new Promise((resolve) => setTimeout(resolve, 0)); }
+async function sendSlack(responseUrl, action, env) {
+  let out;
+  try {
+    if (action === "help") out = slackOut([], action, env);
+    else out = slackOut(await fetchMenu(env), action, env);
+  } catch (err) {
+    out = `메뉴를 가져오지 못했습니다: ${err?.message || err}`;
+  }
+  const res = await fetch(responseUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8", "user-agent": "snu-food-discord-worker/1.0" },
+    body: JSON.stringify({ response_type: "ephemeral", text: slackMd(out) }),
+  });
+  if (!res.ok) throw new Error(`Slack response_url returned HTTP ${res.status}: ${await res.text()}`);
+}
 export function preferredRestaurantsForCommand(interaction, env = {}) {
   return interaction.data?.name === "dinner" ? env.SNU_FOOD_BOT_DINNER_RESTAURANTS || DINNER_RESTAURANTS : env.SNU_FOOD_BOT_RESTAURANTS || RESTAURANTS;
 }
