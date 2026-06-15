@@ -163,7 +163,98 @@ const compactTime = formatCompactTime(rows, "302동,교직원식당,301동");
 assert.equal(readableTime, expectedTime);
 assert.equal(compactTime, expectedTime);
 
-for (const output of [readableOutput, compactOutput, readableTime, compactTime]) {
+const compoundRows = [
+  {
+    restaurant: "301동식당 (889-8955)",
+    breakfast: "",
+    lunch: [
+      "<식사>",
+      "얼큰짬뽕&만두깐풍 : 6,500원",
+      "※ 운영시간 11:30~13:30",
+      "",
+      "<TAKE-OUT>",
+      "닭가슴살큐브샐러드 : 5,500원",
+      "",
+      "<301동1층  교직원전용식당>",
+      "제육고추장볶음&모듬쌈&계란말이: 9,000원",
+      "※ 교직원이용시간 : 11:30~12:15",
+      "※ 학생 및 대학원생 이용시간 12:15~13:30",
+    ].join("\n"),
+    dinner: "",
+  },
+];
+
+const expectedCompoundLunch = [
+  "2026-06-12 (금) 점심",
+  "",
+  "**301동식당 (889-8955)**",
+  "• 얼큰짬뽕&만두깐풍",
+  "• 닭가슴살큐브샐러드",
+  "",
+  "**301동1층 교직원전용식당**",
+  "• 제육고추장볶음&모듬쌈&계란말이",
+].join("\n");
+
+const expectedStaffOnlyLunch = [
+  "2026-06-12 (금) 점심",
+  "",
+  "**301동1층 교직원전용식당**",
+  "• 제육고추장볶음&모듬쌈&계란말이",
+].join("\n");
+
+const expectedStaffTime = [
+  "운영시간",
+  "",
+  "**301동1층 교직원전용식당**",
+  "• 점심 교직원 11:30~12:15 / 학생 및 대학원생 12:15~13:30",
+].join("\n");
+
+const readableCompoundLunch = formatReadableMenu(compoundRows, {
+  meals: ["lunch"],
+  preferred: "301식당,교직원식당",
+  now: friday,
+});
+const compactCompoundLunch = formatCompactMenu(
+  compoundRows,
+  ["lunch"],
+  "301식당,교직원식당",
+  friday,
+);
+const readableStaffOnlyLunch = formatReadableMenu(compoundRows, {
+  meals: ["lunch"],
+  preferred: "교직원식당",
+  now: friday,
+});
+const compactStaffOnlyLunch = formatCompactMenu(
+  compoundRows,
+  ["lunch"],
+  "교직원식당",
+  friday,
+);
+const readableStaffTime = formatReadableTime(compoundRows, {
+  preferred: "교직원식당",
+});
+const compactStaffTime = formatCompactTime(compoundRows, "교직원식당");
+
+assert.equal(readableCompoundLunch, expectedCompoundLunch);
+assert.equal(compactCompoundLunch, expectedCompoundLunch);
+assert.equal(readableStaffOnlyLunch, expectedStaffOnlyLunch);
+assert.equal(compactStaffOnlyLunch, expectedStaffOnlyLunch);
+assert.equal(readableStaffTime, expectedStaffTime);
+assert.equal(compactStaffTime, expectedStaffTime);
+
+for (const output of [
+  readableOutput,
+  compactOutput,
+  readableTime,
+  compactTime,
+  readableCompoundLunch,
+  compactCompoundLunch,
+  readableStaffOnlyLunch,
+  compactStaffOnlyLunch,
+  readableStaffTime,
+  compactStaffTime,
+]) {
   assert.equal(output.includes("Source"), false);
   assert.equal(output.includes("SNU food menu"), false);
   assert.equal(output.includes("뷔페"), false);

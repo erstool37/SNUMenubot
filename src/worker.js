@@ -327,14 +327,155 @@ export function formatTime(rows, { preferred = "", maxRestaurants = 8 } = {}) {
 }
 
 function preferredFilter(rows, preferred) {
+  const expandedRows = expandCompoundRestaurantRows(rows);
   const names = preferred
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
-  if (names.length === 0) return rows;
-  return rows.filter((row) =>
-    names.some((name) => row.restaurant.toLowerCase().includes(name.toLowerCase())),
+  if (names.length === 0) return expandedRows;
+  return expandedRows.filter((row) =>
+    names.some((name) => restaurantMatches(row.restaurant, name)),
   );
+}
+
+function expandCompoundRestaurantRows(rows) {
+  const expandedRows = [];
+  for (const row of rows) {
+    if (isStaffRestaurantSection(row.restaurant)) {
+      expandedRows.push(row);
+      continue;
+    }
+
+    const baseRow = { ...row };
+    const staffRows = new Map();
+
+    for (const meal of ["breakfast", "lunch", "dinner"]) {
+      const split = splitStaffSections(baseRow[meal] || "");
+      baseRow[meal] = split.baseText;
+      for (const section of split.staffSections) {
+        const staffRow = staffRows.get(section.restaurant) || {
+          restaurant: section.restaurant,
+          breakfast: "",
+          lunch: "",
+          dinner: "",
+        };
+        staffRow[meal] = joinSectionTexts(staffRow[meal], section.text);
+        staffRows.set(section.restaurant, staffRow);
+      }
+    }
+
+    expandedRows.push(baseRow, ...staffRows.values());
+  }
+  return expandedRows;
+}
+
+function splitStaffSections(text) {
+  const baseLines = [];
+  const staffSections = [];
+  let currentStaff = null;
+
+  for (const line of text.split("\n")) {
+    const sectionTitle = sectionTitleFromLine(line);
+    if (sectionTitle) {
+      if (isStaffRestaurantSection(sectionTitle)) {
+        currentStaff = { restaurant: sectionTitle, lines: [] };
+        staffSections.push(currentStaff);
+      } else {
+        currentStaff = null;
+        baseLines.push(line);
+      }
+      continue;
+    }
+
+    if (currentStaff) {
+      currentStaff.lines.push(line);
+    } else {
+      baseLines.push(line);
+    }
+  }
+
+  return {
+    baseText: normalizeSectionText(baseLines),
+    staffSections: staffSections
+      .map((section) => ({
+        restaurant: section.restaurant,
+        text: normalizeSectionText(section.lines),
+      }))
+      .filter((section) => section.text),
+  };
+}
+
+function sectionTitleFromLine(line) {
+  const match = line.trim().match(/^<([^<>]+)>$/);
+  return match ? match[1].replace(/[ \t\u00a0]+/g, " ").trim() : "";
+}
+
+function isStaffRestaurantSection(title) {
+  const key = restaurantKey(title);
+  return key.includes("교직원") && key.includes("식당");
+}
+
+function normalizeSectionText(lines) {
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function joinSectionTexts(first, second) {
+  return [first, second].filter(Boolean).join("\n");
+}
+
+function restaurantMatches(restaurant, preferredName) {
+  const restaurantKeys = restaurantMatchKeys(restaurant);
+  const preferredKeys = restaurantMatchKeys(preferredName);
+
+  for (const preferredKey of preferredKeys) {
+    for (const restaurantKeyValue of restaurantKeys) {
+      if (restaurantKeyValue === preferredKey) return true;
+    }
+  }
+
+  const numericSelector = preferredKeys.some(isNumericRestaurantSelector);
+  if (numericSelector) return false;
+
+  for (const preferredKey of preferredKeys) {
+    for (const restaurantKeyValue of restaurantKeys) {
+      if (restaurantKeyValue.includes(preferredKey)) return true;
+    }
+  }
+  return false;
+}
+
+function restaurantMatchKeys(value) {
+  const raw = restaurantKey(value);
+  if (!raw) return [];
+
+  const keys = new Set([raw]);
+  const withoutStaffOnly = raw.replace(/전용/g, "");
+  keys.add(withoutStaffOnly);
+  keys.add(raw.replace(/동식당/g, "식당"));
+  keys.add(withoutStaffOnly.replace(/동식당/g, "식당"));
+
+  if (/^\d+동$/.test(raw)) {
+    keys.add(`${raw}식당`);
+    keys.add(raw.replace(/동$/, "식당"));
+  }
+  if (/^\d+식당$/.test(raw)) {
+    keys.add(raw.replace(/식당$/, "동식당"));
+  }
+
+  return [...keys].filter(Boolean);
+}
+
+function restaurantKey(value) {
+  return value
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/^[*]+/g, "")
+    .replace(/[ \t\u00a0]+/g, "")
+    .trim();
+}
+
+function isNumericRestaurantSelector(value) {
+  return /^\d+(?:동)?(?:식당)?$/.test(value);
 }
 
 function normalizeText(html) {
@@ -389,11 +530,26 @@ function cleanMenuLine(line) {
 }
 
 function operatingTime(text = "") {
+  const times = [];
   for (const line of text.split("\n")) {
-    const match = line.match(/^※?\s*운영시간\s*[:：]\s*(.+)$/);
-    if (match) return match[1].replace(/[ \t\u00a0]+/g, " ").trim();
+    const operating = line.match(/^※?\s*운영시간\s*[:：]?\s*(.+)$/);
+    if (operating) {
+      times.push(operating[1].replace(/[ \t\u00a0]+/g, " ").trim());
+      continue;
+    }
+
+    const staff = line.match(/^※?\s*교직원\s*이용시간\s*[:：]?\s*(.+)$/);
+    if (staff) {
+      times.push(`교직원 ${staff[1].replace(/[ \t\u00a0]+/g, " ").trim()}`);
+      continue;
+    }
+
+    const student = line.match(/^※?\s*학생\s*및\s*대학원생\s*이용시간\s*[:：]?\s*(.+)$/);
+    if (student) {
+      times.push(`학생 및 대학원생 ${student[1].replace(/[ \t\u00a0]+/g, " ").trim()}`);
+    }
   }
-  return "";
+  return times.join(" / ");
 }
 
 function decodeHtml(text) {
