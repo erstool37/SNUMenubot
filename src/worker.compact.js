@@ -4,6 +4,7 @@ const RESTAURANTS = "302동,301동,교직원식당";
 const DINNER_RESTAURANTS = "302동식당";
 const LIMIT = 1900;
 const LABEL = { breakfast: "아침", lunch: "점심", dinner: "저녁" };
+const EXCLUDED = new Set(["닭가슴살큐브샐러드", "헬스팩"]);
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
@@ -153,7 +154,7 @@ export function formatMenu(rows, meals, preferred, now = new Date()) {
       const menu = clip(r[meal]);
       if (!menu) continue;
       found = true;
-      parts.push("", `**${r.restaurant}**`, ...menu.split("\n").map((line) => `• ${line}`));
+      parts.push("", `**${dname(r.restaurant)}**`, ...menu.split("\n").map((line) => `• ${line}`));
     }
     if (!found) parts.push("", "등록된 메뉴가 없습니다.");
   }
@@ -170,7 +171,7 @@ export function formatTime(rows, preferred, max = 8) {
     }).filter(Boolean);
     if (!lines.length) continue;
     found = true;
-    parts.push("", `**${r.restaurant}**`, ...lines);
+    parts.push("", `**${dname(r.restaurant)}**`, ...lines);
   }
   if (!found) parts.push("", "등록된 운영시간이 없습니다.");
   return parts.join("\n").trim();
@@ -256,6 +257,7 @@ function rkeys(v) {
   return [...keys].filter(Boolean);
 }
 function rkey(v) { return v.toLowerCase().replace(/\([^)]*\)/g, "").replace(/^[*]+/g, "").replace(/[ \t\u00a0]+/g, "").trim(); }
+function dname(v) { return v.replace(/\s*\(\d{2,4}-\d{3,4}\)\s*$/, "").trim(); }
 function clean(html) {
   return decode(html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, ""))
     .replace(/\r/g, "\n")
@@ -287,6 +289,7 @@ function line(s) {
   if (!v || /^※/.test(v) || /^(운영시간|혼잡시간)\s*[:：]/.test(v)) return "";
   if (/^<[^>]+>\s*(?:[:：]?\s*\d{1,3}(?:,\d{3})*원)?$/.test(v)) return "";
   v = v.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*원/g, "").replace(/\s*[:：]\s*$/, "").trim();
+  if (EXCLUDED.has(v)) return "";
   return !v || /^<[^>]+>$/.test(v) ? "" : v;
 }
 function time(s = "") {

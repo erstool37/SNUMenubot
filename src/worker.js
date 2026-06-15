@@ -10,6 +10,8 @@ const MEAL_LABELS = {
   dinner: "저녁",
 };
 
+const EXCLUDED_MENU_ITEMS = new Set(["닭가슴살큐브샐러드", "헬스팩"]);
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -292,7 +294,7 @@ export function formatMenu(rows, {
       const value = clipMenuLines(row[meal]);
       if (!value) continue;
       anyMenu = true;
-      parts.push("", `**${row.restaurant}**`);
+      parts.push("", `**${displayRestaurantName(row.restaurant)}**`);
       parts.push(...value.split("\n").map((line) => `• ${line}`));
     }
     if (!anyMenu) {
@@ -316,7 +318,7 @@ export function formatTime(rows, { preferred = "", maxRestaurants = 8 } = {}) {
     }
     if (lines.length === 0) continue;
     anyTime = true;
-    parts.push("", `**${row.restaurant}**`, ...lines);
+    parts.push("", `**${displayRestaurantName(row.restaurant)}**`, ...lines);
   }
 
   if (!anyTime) {
@@ -474,6 +476,10 @@ function restaurantKey(value) {
     .trim();
 }
 
+function displayRestaurantName(value) {
+  return value.replace(/\s*\(\d{2,4}-\d{3,4}\)\s*$/, "").trim();
+}
+
 function isNumericRestaurantSelector(value) {
   return /^\d+(?:동)?(?:식당)?$/.test(value);
 }
@@ -526,6 +532,7 @@ function cleanMenuLine(line) {
   value = value.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*원/g, "").trim();
   value = value.replace(/\s*[:：]\s*$/, "").trim();
   if (!value || /^<[^>]+>$/.test(value)) return "";
+  if (EXCLUDED_MENU_ITEMS.has(value)) return "";
   return value;
 }
 
