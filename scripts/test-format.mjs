@@ -29,7 +29,7 @@ const rows = [
       "※ 혼잡시간 : 11:50~12:20",
     ].join("\n"),
     dinner: [
-      "<Buffet> 6,500원",
+      "< Buffet > 6,500won",
       "훈제오리볶음밥&미니핫도그",
       "찹스테이크",
       "참깨소스냉두부",
@@ -263,6 +263,7 @@ for (const output of [
   assert.equal(output.includes("혼잡시간"), false);
   assert.equal(output.includes("9,000원"), false);
   assert.equal(output.includes("6,500원"), false);
+  assert.equal(output.includes("6,500won"), false);
   assert.equal(/\d{1,3}(?:,\d{3})*원/.test(output), false);
 }
 

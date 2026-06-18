@@ -15,7 +15,7 @@ const html = `
         ※ 운영시간 : 11:30~13:30
       </td>
       <td class="dinner">
-        &lt;Buffet&gt; 6,500원<br>
+        &lt; Buffet &gt; 6,500won<br>
         훈제오리볶음밥&amp;미니핫도그<br>
         찹스테이크<br>
         ※ 운영시간 : 17:00~18:30
@@ -88,7 +88,7 @@ await Promise.all(waitUntilPromises);
 assert.equal(menuFetches, 1);
 assert.equal(slackPosts.length, 1);
 assert.equal(slackPosts[0].method, "POST");
-assert.equal(slackPosts[0].body.response_type, "ephemeral");
+assert.equal(slackPosts[0].body.response_type, "in_channel");
 assert.equal(slackPosts[0].body.text.includes("*302동식당*"), true);
 assert.equal(slackPosts[0].body.text.includes("훈제오리볶음밥&미니핫도그"), true);
 assert.equal(slackPosts[0].body.text.includes("*301동식당*"), false);
@@ -115,7 +115,7 @@ assert.equal(timePayload.text, "메뉴를 불러오는 중입니다.");
 assert.equal(waitUntilPromises.length, 1);
 await Promise.all(waitUntilPromises);
 assert.equal(slackPosts.length, 1);
-assert.equal(slackPosts[0].body.response_type, "ephemeral");
+assert.equal(slackPosts[0].body.response_type, "in_channel");
 assert.equal(slackPosts[0].body.text.includes("*302동식당*"), true);
 assert.equal(slackPosts[0].body.text.includes("• 점심 11:30~13:30"), true);
 assert.equal(slackPosts[0].body.text.includes("• 저녁 17:00~18:30"), true);

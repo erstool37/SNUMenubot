@@ -120,7 +120,9 @@ https://discord.com/oauth2/authorize?client_id=<DISCORD_APPLICATION_ID>&scope=ap
 ## Slack Setup
 
 The Slack path is slash-command only. It does not request channel read, channel write,
-DM read, or bot message scopes. Slack responses are always ephemeral.
+DM read, or bot message scopes. Successful menu and time responses are posted
+to the channel through Slack's `response_url`; loading, help, and error messages
+remain ephemeral.
 
 1. Deploy the Worker so the Slack request URL is reachable over HTTPS.
 2. In Cloudflare, add this Worker secret:
@@ -148,5 +150,5 @@ Usage:
 /snumenu time
 ```
 
-The command can be typed from Slack, but the response payload explicitly uses
-`response_type: ephemeral`.
+The command can be typed from Slack. Successful menu and time response payloads
+use `response_type: in_channel` so other channel members can see them.

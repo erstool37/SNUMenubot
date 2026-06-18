@@ -104,16 +104,18 @@ function slackMd(s) { return s.replace(/\*\*([^*\n]+)\*\*/g, "*$1*"); }
 function defer() { return new Promise((resolve) => setTimeout(resolve, 0)); }
 async function sendSlack(responseUrl, action, env) {
   let out;
+  let responseType = action === "help" ? "ephemeral" : "in_channel";
   try {
     if (action === "help") out = slackOut([], action, env);
     else out = slackOut(await fetchMenu(env), action, env);
   } catch (err) {
+    responseType = "ephemeral";
     out = `메뉴를 가져오지 못했습니다: ${err?.message || err}`;
   }
   const res = await fetch(responseUrl, {
     method: "POST",
     headers: { "content-type": "application/json; charset=utf-8", "user-agent": "snu-food-discord-worker/1.0" },
-    body: JSON.stringify({ response_type: "ephemeral", text: slackMd(out) }),
+    body: JSON.stringify({ response_type: responseType, text: slackMd(out) }),
   });
   if (!res.ok) throw new Error(`Slack response_url returned HTTP ${res.status}: ${await res.text()}`);
 }
@@ -287,8 +289,8 @@ function clip(s = "", max = 12) {
 function line(s) {
   let v = s.replace(/[ \t\u00a0]+/g, " ").trim();
   if (!v || /^※/.test(v) || /^(운영시간|혼잡시간)\s*[:：]/.test(v)) return "";
-  if (/^<[^>]+>\s*(?:[:：]?\s*\d{1,3}(?:,\d{3})*원)?$/.test(v)) return "";
-  v = v.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*원/g, "").replace(/\s*[:：]\s*$/, "").trim();
+  if (/^<\s*[^>]+\s*>\s*(?:[:：]?\s*\d{1,3}(?:,\d{3})*\s*(?:원|won))?$/i.test(v)) return "";
+  v = v.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*\s*(?:원|won)/gi, "").replace(/\s*[:：]\s*$/, "").trim();
   if (EXCLUDED.has(v)) return "";
   return !v || /^<[^>]+>$/.test(v) ? "" : v;
 }

@@ -199,6 +199,7 @@ function slackMrkdwn(text) {
 
 async function sendSlackCommandResponse(responseUrl, action, env) {
   let text;
+  let responseType = action === "help" ? "ephemeral" : "in_channel";
   try {
     if (action === "help") {
       text = slackMrkdwn(formatSlackAction([], action, env));
@@ -207,10 +208,11 @@ async function sendSlackCommandResponse(responseUrl, action, env) {
       text = slackMrkdwn(formatSlackAction(rows, action, env));
     }
   } catch (error) {
+    responseType = "ephemeral";
     text = `메뉴를 가져오지 못했습니다: ${errorMessage(error)}`;
   }
 
-  await postSlackJson(responseUrl, { response_type: "ephemeral", text });
+  await postSlackJson(responseUrl, { response_type: responseType, text });
 }
 
 function defer() {
@@ -527,9 +529,9 @@ function cleanMenuLine(line) {
   if (!value) return "";
   if (/^※/.test(value)) return "";
   if (/^(운영시간|혼잡시간)\s*[:：]/.test(value)) return "";
-  if (/^<[^>]+>\s*(?:[:：]?\s*\d{1,3}(?:,\d{3})*원)?$/.test(value)) return "";
+  if (/^<\s*[^>]+\s*>\s*(?:[:：]?\s*\d{1,3}(?:,\d{3})*\s*(?:원|won))?$/i.test(value)) return "";
 
-  value = value.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*원/g, "").trim();
+  value = value.replace(/\s*[:：]?\s*\d{1,3}(?:,\d{3})*\s*(?:원|won)/gi, "").trim();
   value = value.replace(/\s*[:：]\s*$/, "").trim();
   if (!value || /^<[^>]+>$/.test(value)) return "";
   if (EXCLUDED_MENU_ITEMS.has(value)) return "";
