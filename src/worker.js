@@ -56,7 +56,35 @@ export default {
       data: { content: "Unsupported Discord interaction type.", flags: 64 },
     });
   },
+
+  // Weekday 11:00 KST cron (see wrangler.toml [triggers]): post today's lunch to Slack.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(postScheduledLunch(env));
+  },
 };
+
+async function postScheduledLunch(env) {
+  const webhookUrl = env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) return; // No incoming webhook configured; nothing to post to.
+
+  let text;
+  try {
+    const rows = await fetchMenu(env);
+    text = slackMrkdwn(formatSlackAction(rows, "lunch", env));
+  } catch (error) {
+    // Silent skip on fetch/parse failure so a bad SNUCO response does not spam the channel.
+    console.log(`scheduled lunch skipped: ${errorMessage(error)}`);
+    return;
+  }
+
+  // Skip posting on days with no actual menu (holidays / closed): no bullet lines.
+  if (!text.includes("•")) {
+    console.log("scheduled lunch skipped: no menu items today");
+    return;
+  }
+
+  await postSlackJson(webhookUrl, { text });
+}
 
 async function handleSlackCommand(request, body, env, ctx) {
   const valid = await verifySlackRequest(request, body, env.SLACK_SIGNING_SECRET);

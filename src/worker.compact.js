@@ -23,7 +23,32 @@ export default {
     ctx.waitUntil(handleCommand(interaction, env));
     return json({ type: 5 });
   },
+  // Weekday 11:00 KST cron (wrangler.toml [triggers]): post today's lunch to Slack.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(postScheduledLunch(env));
+  },
 };
+async function postScheduledLunch(env) {
+  const webhookUrl = env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  let out;
+  try {
+    out = slackMd(slackOut(await fetchMenu(env), "lunch", env));
+  } catch (err) {
+    console.log(`scheduled lunch skipped: ${err?.message || err}`);
+    return;
+  }
+  if (!out.includes("•")) {
+    console.log("scheduled lunch skipped: no menu items today");
+    return;
+  }
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8", "user-agent": "snu-food-discord-worker/1.0" },
+    body: JSON.stringify({ text: out }),
+  });
+  if (!res.ok) throw new Error(`Slack webhook returned HTTP ${res.status}: ${await res.text()}`);
+}
 async function handleSlack(req, body, env, ctx) {
   if (!(await verifySlack(req, body, env.SLACK_SIGNING_SECRET))) return text("invalid request signature", 401);
   const params = new URLSearchParams(body);
