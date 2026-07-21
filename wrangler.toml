@@ -6,3 +6,10 @@ workers_dev = true
 [vars]
 SNU_FOOD_BOT_MENU_URL = "https://snuco.snu.ac.kr/foodmenu/"
 SNU_FOOD_BOT_RESTAURANTS = "302동,301동,교직원식당"
+
+# Auto-post today's lunch to Slack on weekdays (Mon-Fri) at 11:00 KST.
+# Cloudflare cron runs in UTC; 11:00 Asia/Seoul (UTC+9) = 02:00 UTC (same weekday).
+# Requires the SLACK_WEBHOOK_URL secret (Slack incoming webhook); if unset, the
+# scheduled handler is a no-op. Set it with: wrangler secret put SLACK_WEBHOOK_URL
+[triggers]
+crons = ["0 2 * * 1-5"]
