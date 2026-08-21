@@ -15,6 +15,8 @@ oauth_config:
   scopes:
     bot:
       - commands
+      # Incoming Webhooks(자동 점심 공지)를 활성화하는 스코프. 별도 features 키는 없음.
+      - incoming-webhook
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: false

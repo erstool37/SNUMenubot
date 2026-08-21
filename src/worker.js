@@ -11,6 +11,9 @@ const MEAL_LABELS = {
 };
 
 const EXCLUDED_MENU_ITEMS = new Set(["닭가슴살큐브샐러드", "헬스팩"]);
+const FETCH_TRIES = 3;
+const FETCH_BACKOFF_MS = 1500;
+const FETCH_TIMEOUT_MS = 10000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -56,7 +59,96 @@ export default {
       data: { content: "Unsupported Discord interaction type.", flags: 64 },
     });
   },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(postLunch(env));
+  },
 };
+
+async function postLunch(env) {
+  console.log("scheduled: start");
+  if (!env.SLACK_WEBHOOK_URL) {
+    console.error("scheduled: SLACK_WEBHOOK_URL is not configured; nothing can be posted");
+    return;
+  }
+
+  let rows;
+  try {
+    rows = await fetchMenuRetry(env);
+  } catch (error) {
+    const reason = `${error?.message || error}`;
+    console.error(`scheduled: menu fetch failed after ${FETCH_TRIES} attempts: ${reason}`);
+    await notifyFailure(env, `점심 메뉴를 불러오지 못했습니다: ${reason}`);
+    return;
+  }
+
+  const preferred = env.SNU_FOOD_BOT_RESTAURANTS || DEFAULT_RESTAURANTS;
+  const out = lunchText(rows, preferred);
+  if (!out) {
+    // 공휴일·방학 등 점심이 아예 없는 날. 의도된 침묵이므로 알림을 보내지 않는다.
+    console.log(`scheduled: no lunch for "${preferred}" (rows=${rows.length}); staying silent`);
+    return;
+  }
+
+  await postWebhook(env.SLACK_WEBHOOK_URL, { text: out });
+  console.log(`scheduled: posted lunch (${out.length} chars)`);
+}
+
+// SNUCO가 순간적으로 실패해도 하루치 공지를 통째로 잃지 않도록 재시도한다.
+export async function fetchMenuRetry(env, tries = FETCH_TRIES, sleep = nap, fetcher = fetchMenu) {
+  let last;
+  for (let attempt = 1; attempt <= tries; attempt += 1) {
+    try {
+      return await fetcher(env);
+    } catch (error) {
+      last = error;
+      console.warn(
+        `scheduled: menu fetch attempt ${attempt}/${tries} failed: ${error?.message || error}`,
+      );
+      if (attempt < tries) await sleep(FETCH_BACKOFF_MS * attempt);
+    }
+  }
+  throw last;
+}
+
+// 실패를 침묵으로 두지 않는다. 공지가 없는 이유가 채널에서 바로 보이도록 한다.
+async function notifyFailure(env, reason) {
+  try {
+    await postWebhook(env.SLACK_WEBHOOK_URL, { text: `:warning: ${reason}` });
+  } catch (error) {
+    console.error(`scheduled: failure notice could not be sent: ${error?.message || error}`);
+  }
+}
+
+// response_url이 아니라 Incoming Webhook 전용. 실패를 먼저 기록한 뒤 던져서
+// 대시보드에도 오류로 남게 한다.
+async function postWebhook(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "user-agent": "snu-food-discord-worker/1.0",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    console.error(`scheduled: Slack webhook rejected the post: HTTP ${response.status} ${body}`);
+    throw new Error(`Slack webhook HTTP ${response.status}: ${body}`);
+  }
+}
+
+function nap(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function lunchText(rows, preferred) {
+  const available = preferredFilter(rows, preferred)
+    .slice(0, 8)
+    .some((row) => clipMenuLines(row.lunch));
+  return available
+    ? slackMrkdwn(formatMenu(rows, { meals: ["lunch"], preferred }))
+    : null;
+}
 
 async function handleSlackCommand(request, body, env, ctx) {
   const valid = await verifySlackRequest(request, body, env.SLACK_SIGNING_SECRET);
@@ -243,6 +335,7 @@ export async function fetchMenu(env = {}) {
       accept: "text/html,application/xhtml+xml",
       "user-agent": "snu-food-discord-worker/1.0",
     },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`SNUCO returned HTTP ${response.status}`);
@@ -252,7 +345,10 @@ export async function fetchMenu(env = {}) {
 
 export function parseMenuHtml(html) {
   const table = html.match(/<div[^>]*id=["']celeb-mealtable["'][\s\S]*?<tbody[^>]*>([\s\S]*?)<\/tbody>/i)?.[1];
-  if (!table) return [];
+  // 표 자체가 없으면 휴일이 아니라 마크업 변경/차단이다. 빈 배열로 삼키면 휴일과 구분되지 않는다.
+  if (!table) {
+    throw new Error("SNUCO page has no #celeb-mealtable (markup changed or request blocked)");
+  }
 
   const rows = [];
   for (const rowMatch of matchAll(table, /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {

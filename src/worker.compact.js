@@ -5,6 +5,10 @@ const DINNER_RESTAURANTS = "302동식당";
 const LIMIT = 1900;
 const LABEL = { breakfast: "아침", lunch: "점심", dinner: "저녁" };
 const EXCLUDED = new Set(["닭가슴살큐브샐러드", "헬스팩"]);
+const FETCH_TRIES = 3;
+const FETCH_BACKOFF_MS = 1500;
+const FETCH_TIMEOUT_MS = 10000;
+const UA = "snu-food-discord-worker/1.0";
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
@@ -23,7 +27,73 @@ export default {
     ctx.waitUntil(handleCommand(interaction, env));
     return json({ type: 5 });
   },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(postLunch(env));
+  },
 };
+async function postLunch(env) {
+  console.log("scheduled: start");
+  if (!env.SLACK_WEBHOOK_URL) {
+    console.error("scheduled: SLACK_WEBHOOK_URL is not configured; nothing can be posted");
+    return;
+  }
+  let rows;
+  try {
+    rows = await fetchMenuRetry(env);
+  } catch (err) {
+    const reason = `${err?.message || err}`;
+    console.error(`scheduled: menu fetch failed after ${FETCH_TRIES} attempts: ${reason}`);
+    await notifyFailure(env, `점심 메뉴를 불러오지 못했습니다: ${reason}`);
+    return;
+  }
+  const preferred = env.SNU_FOOD_BOT_RESTAURANTS || RESTAURANTS;
+  const out = lunchText(rows, preferred);
+  if (!out) {
+    console.log(`scheduled: no lunch for "${preferred}" (rows=${rows.length}); staying silent`);
+    return;
+  }
+  const res = await fetch(env.SLACK_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8", "user-agent": UA },
+    body: JSON.stringify({ text: out }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`scheduled: Slack webhook rejected the post: HTTP ${res.status} ${body}`);
+    throw new Error(`Slack webhook HTTP ${res.status}: ${body}`);
+  }
+  console.log(`scheduled: posted lunch (${out.length} chars)`);
+}
+export async function fetchMenuRetry(env, tries = FETCH_TRIES, sleep = nap, fetcher = fetchMenu) {
+  let last;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      return await fetcher(env);
+    } catch (err) {
+      last = err;
+      console.warn(`scheduled: menu fetch attempt ${attempt}/${tries} failed: ${err?.message || err}`);
+      if (attempt < tries) await sleep(FETCH_BACKOFF_MS * attempt);
+    }
+  }
+  throw last;
+}
+async function notifyFailure(env, reason) {
+  try {
+    const res = await fetch(env.SLACK_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8", "user-agent": UA },
+      body: JSON.stringify({ text: `:warning: ${reason}` }),
+    });
+    if (!res.ok) console.error(`scheduled: failure notice rejected: HTTP ${res.status} ${await res.text()}`);
+  } catch (err) {
+    console.error(`scheduled: failure notice could not be sent: ${err?.message || err}`);
+  }
+}
+function nap(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+export function lunchText(rows, preferred) {
+  const available = filterRows(rows, preferred).slice(0, 8).some((r) => clip(r.lunch));
+  return available ? slackMd(formatMenu(rows, ["lunch"], preferred)) : null;
+}
 async function handleSlack(req, body, env, ctx) {
   if (!(await verifySlack(req, body, env.SLACK_SIGNING_SECRET))) return text("invalid request signature", 401);
   const params = new URLSearchParams(body);
@@ -124,14 +194,16 @@ export function preferredRestaurantsForCommand(interaction, env = {}) {
 }
 export async function fetchMenu(env) {
   const res = await fetch(env.SNU_FOOD_BOT_MENU_URL || MENU, {
-    headers: { accept: "text/html,application/xhtml+xml", "user-agent": "snu-food-discord-worker/1.0" },
+    headers: { accept: "text/html,application/xhtml+xml", "user-agent": UA },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`SNUCO returned HTTP ${res.status}`);
   return parseMenu(await res.text());
 }
-function parseMenu(html) {
+export function parseMenu(html) {
   const table = html.match(/<div[^>]*id=["']celeb-mealtable["'][\s\S]*?<tbody[^>]*>([\s\S]*?)<\/tbody>/i)?.[1];
-  if (!table) return [];
+  // 표 자체가 없으면 휴일이 아니라 마크업 변경/차단이다. 빈 배열로 삼키면 휴일과 구분되지 않는다.
+  if (!table) throw new Error("SNUCO page has no #celeb-mealtable (markup changed or request blocked)");
   const rows = [];
   for (const tr of all(table, /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const row = {};
