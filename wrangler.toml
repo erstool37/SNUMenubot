@@ -3,6 +3,29 @@ main = "src/worker.compact.js"
 compatibility_date = "2026-05-05"
 workers_dev = true
 
+# 평일(월–금) 10:30 KST에 점심 메뉴 자동 공지. 크론은 UTC 기준이며
+# 한국은 DST가 없어 UTC 01:30 = 항상 KST 10:30.
+[triggers]
+crons = ["30 1 * * 1-5"]
+
 [vars]
 SNU_FOOD_BOT_MENU_URL = "https://snuco.snu.ac.kr/foodmenu/"
 SNU_FOOD_BOT_RESTAURANTS = "302동,301동,교직원식당"
+
+# 대시보드 현재 상태와 일치시킨 값. 최상위 enabled는 구형 토글이라 false지만
+# observability.logs.enabled = true 가 우선하므로 Workers Logs는 켜져 있다.
+# 이게 꺼지면 크론 실패가 아무 흔적도 남기지 않는다.
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
