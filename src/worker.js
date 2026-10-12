@@ -11,9 +11,11 @@ const MEAL_LABELS = {
 };
 
 const EXCLUDED_MENU_ITEMS = new Set(["닭가슴살큐브샐러드", "헬스팩"]);
-const FETCH_TRIES = 3;
-const FETCH_BACKOFF_MS = 1500;
-const FETCH_TIMEOUT_MS = 10000;
+// 10:30 크론 시점 SNUCO 무응답이 ~35초 창(10s×3)을 넘겨 실패한 적이 있어 창을 수 분으로 넓힘.
+// 최악 4×20s + 15+60+180s ≈ 5.6분, 크론 wall-time 한도(15분) 안.
+const FETCH_TRIES = 4;
+const FETCH_BACKOFF_MS = [15000, 60000, 180000];
+const FETCH_TIMEOUT_MS = 20000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -104,7 +106,7 @@ export async function fetchMenuRetry(env, tries = FETCH_TRIES, sleep = nap, fetc
       console.warn(
         `scheduled: menu fetch attempt ${attempt}/${tries} failed: ${error?.message || error}`,
       );
-      if (attempt < tries) await sleep(FETCH_BACKOFF_MS * attempt);
+      if (attempt < tries) await sleep(FETCH_BACKOFF_MS[Math.min(attempt, FETCH_BACKOFF_MS.length) - 1]);
     }
   }
   throw last;
