@@ -6,3 +6,9 @@ workers_dev = true
 [vars]
 SNU_FOOD_BOT_MENU_URL = "https://snuco.snu.ac.kr/foodmenu/"
 SNU_FOOD_BOT_RESTAURANTS = "302동,301동,교직원식당"
+
+# Weekday lunch post at 10:30 KST (01:30 UTC). Use day NAMES: Cloudflare numbers weekdays
+# 1 = Sunday, so "1-5" means Sun-Thu (that skipped every Friday until 2026-10-30).
+# The post needs the secret SLACK_WEBHOOK_URL (wrangler secret put SLACK_WEBHOOK_URL).
+[triggers]
+crons = ["30 1 * * MON-FRI"]
